@@ -1,0 +1,8 @@
+waypoint_id,route_id,sequence,name,latitude,longitude,instruction,landmark_side,verification_status
+W001,R001,1,GBU Gate No. 1,28.4226788,77.5246413,Start navigation,None,Coordinates Available
+W002,R001,2,The Grand Street Cafe,Pending,Pending,Continue straight,Right,Location Pending
+W003,R001,3,Roundabout,Pending,Pending,Continue straight,None,Location Pending
+W004,R001,4,Roundabout Exit,Pending,Pending,Exit roundabout,None,Location Pending
+W005,R001,5,School of Management,28.417292,77.522065,Continue towards ICT,Side Pending,Coordinates Available
+W006,R001,6,Admin Department,28.416059,77.521091,Continue towards ICT,Opposite School of Management,Coordinates Available
+W007,R001,7,School of ICT,28.416732,77.523419,Destination,None,Coordinates Available

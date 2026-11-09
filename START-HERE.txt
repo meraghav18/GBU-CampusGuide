@@ -1,0 +1,18 @@
+GBU CAMPUSGUIDE - START HERE
+
+1) Install Python 3.10+ and Node.js 20+.
+2) Open this folder in VS Code.
+3) Read README.md.
+4) Start backend in one terminal:
+   cd backend
+   py -m venv .venv
+   .venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload
+5) Start frontend in a second terminal:
+   cd frontend
+   npm install
+   npm run dev
+6) Open http://localhost:5173
+
+Keep both terminals running while using the website.

@@ -1,0 +1,5 @@
+landmark_id,route_id,sequence,building_id,landmark_name,relative_position,route_section,announcement,verification_status
+L001,R001,1,B003,Meditation Centre,Left,Before Roundabout,Meditation Centre is on your left,User Reported
+L002,R001,2,B004,School of Management,One Side,After Roundabout,School of Management is nearby,User Reported
+L003,R001,3,B002,Admin Department,Opposite to School of Management,After School of Management,Admin Department is on the opposite side,User Reported
+L004,R001,4,B005,School of ICT,Destination,End of Route,You have reached School of ICT,Pending
