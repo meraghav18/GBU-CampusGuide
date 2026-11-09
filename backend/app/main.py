@@ -1,27 +1,72 @@
-from fastapi import FastAPI, HTTPException
+
+import os
+import csv
+import httpx
+import math
+
+from pathlib import Path
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from pathlib import Path
-import csv, httpx, math
+
+
+# -----------------------------
+# Paths and Configuration
+# -----------------------------
 
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data" / "campus_locations.csv"
 
-app = FastAPI(title="GBU CampusGuide API", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
+app = FastAPI(
+    title="GBU CampusGuide API",
+    version="1.0.0"
 )
+
+
+# -----------------------------
+# CORS Configuration
+# -----------------------------
+
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "").strip()
+
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+if frontend_origin:
+    allowed_origins.append(frontend_origin.rstrip("/"))
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# -----------------------------
+# Load Campus Locations
+# -----------------------------
 
 def load_locations():
     with DATA.open(encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
-    for r in rows:
-        r["latitude"] = float(r["latitude"])
-        r["longitude"] = float(r["longitude"])
+
+    for row in rows:
+        row["latitude"] = float(row["latitude"])
+        row["longitude"] = float(row["longitude"])
+
     return rows
 
+
 LOCATIONS = load_locations()
+
+
+# -----------------------------
+# Route Request Model
+# -----------------------------
 
 class RouteRequest(BaseModel):
     start_lat: float
@@ -29,56 +74,165 @@ class RouteRequest(BaseModel):
     end_lat: float
     end_lon: float
 
+
+# -----------------------------
+# Health Check API
+# -----------------------------
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "project": "GBU CampusGuide"}
+    return {
+        "status": "ok",
+        "project": "GBU CampusGuide"
+    }
+
+
+# -----------------------------
+# Campus Locations API
+# -----------------------------
 
 @app.get("/api/locations")
 def locations():
     return LOCATIONS
 
+
+# -----------------------------
+# Campus Route API
+# -----------------------------
+
 @app.post("/api/route")
 async def route(req: RouteRequest):
-    # OpenStreetMap community foot router. Coverage inside a campus may be incomplete.
+
+    # OpenStreetMap community foot routing service
     url = (
         "https://routing.openstreetmap.de/routed-foot/route/v1/driving/"
-        f"{req.start_lon},{req.start_lat};{req.end_lon},{req.end_lat}"
+        f"{req.start_lon},{req.start_lat};"
+        f"{req.end_lon},{req.end_lat}"
     )
+
     try:
-        async with httpx.AsyncClient(timeout=18, headers={"User-Agent": "GBU-CampusGuide/1.0"}) as client:
-            response = await client.get(url, params={"overview": "full", "geometries": "geojson", "steps": "true"})
+        async with httpx.AsyncClient(
+            timeout=18,
+            headers={"User-Agent": "GBU-CampusGuide/1.0"}
+        ) as client:
+
+            response = await client.get(
+                url,
+                params={
+                    "overview": "full",
+                    "geometries": "geojson",
+                    "steps": "true"
+                }
+            )
+
             response.raise_for_status()
             data = response.json()
+
         if data.get("routes"):
-            r = data["routes"][0]
+
+            route_data = data["routes"][0]
             steps = []
-            for leg in r.get("legs", []):
-                for s in leg.get("steps", []):
-                    instruction = s.get("name") or s.get("ref") or "Continue"
-                    maneuver = s.get("maneuver", {})
-                    typ = maneuver.get("type", "")
-                    mod = maneuver.get("modifier", "")
-                    if typ == "depart": instruction = "Start walking"
-                    elif typ == "arrive": instruction = "You have reached your destination"
-                    elif typ: instruction = f"{typ.replace('-', ' ').title()} {mod}".strip()
-                    if s.get("name") and typ not in ("depart", "arrive"):
-                        instruction += f" onto {s['name']}"
-                    steps.append({"instruction": instruction, "distance_m": round(s.get("distance", 0))})
-            return {"source": "OpenStreetMap foot routing", "estimated": True,
-                    "distance_m": round(r.get("distance", 0)), "duration_s": round(r.get("duration", 0)),
-                    "coordinates": r["geometry"]["coordinates"], "steps": steps}
+
+            for leg in route_data.get("legs", []):
+
+                for step in leg.get("steps", []):
+
+                    instruction = (
+                        step.get("name")
+                        or step.get("ref")
+                        or "Continue"
+                    )
+
+                    maneuver = step.get("maneuver", {})
+                    maneuver_type = maneuver.get("type", "")
+                    modifier = maneuver.get("modifier", "")
+
+                    if maneuver_type == "depart":
+                        instruction = "Start walking"
+
+                    elif maneuver_type == "arrive":
+                        instruction = "You have reached your destination"
+
+                    elif maneuver_type:
+                        instruction = (
+                            f"{maneuver_type.replace('-', ' ').title()} "
+                            f"{modifier}"
+                        ).strip()
+
+                    if (
+                        step.get("name")
+                        and maneuver_type not in ("depart", "arrive")
+                    ):
+                        instruction += f" onto {step['name']}"
+
+                    steps.append({
+                        "instruction": instruction,
+                        "distance_m": round(step.get("distance", 0))
+                    })
+
+            return {
+                "source": "OpenStreetMap foot routing",
+                "estimated": True,
+                "distance_m": round(route_data.get("distance", 0)),
+                "duration_s": round(route_data.get("duration", 0)),
+                "coordinates": route_data["geometry"]["coordinates"],
+                "steps": steps
+            }
+
     except Exception:
         pass
 
-    # Safe fallback: straight-line guide, explicitly marked as an estimate, not a walkable route.
-    def haversine(a,b,c,d):
-        R=6371000
-        p1,p2=math.radians(a),math.radians(c)
-        dp=math.radians(c-a); dl=math.radians(d-b)
-        x=math.sin(dp/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-        return 2*R*math.asin(math.sqrt(x))
-    dist = haversine(req.start_lat, req.start_lon, req.end_lat, req.end_lon)
-    return {"source":"Straight-line fallback", "estimated":True, "warning":"Walking route service unavailable. Open Google Maps for turn-by-turn directions.",
-            "distance_m":round(dist), "duration_s":round(dist/1.1),
-            "coordinates":[[req.start_lon,req.start_lat],[req.end_lon,req.end_lat]],
-            "steps":[{"instruction":"Follow Google Maps for the actual walking route","distance_m":round(dist)}]}
+
+    # -----------------------------
+    # Straight-Line Fallback
+    # -----------------------------
+
+    def haversine(lat1, lon1, lat2, lon2):
+
+        earth_radius = 6371000
+
+        p1 = math.radians(lat1)
+        p2 = math.radians(lat2)
+
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lon = math.radians(lon2 - lon1)
+
+        x = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(p1)
+            * math.cos(p2)
+            * math.sin(delta_lon / 2) ** 2
+        )
+
+        return 2 * earth_radius * math.asin(math.sqrt(x))
+
+
+    distance = haversine(
+        req.start_lat,
+        req.start_lon,
+        req.end_lat,
+        req.end_lon
+    )
+
+    return {
+        "source": "Straight-line fallback",
+        "estimated": True,
+        "warning": (
+            "Walking route service unavailable. "
+            "Open Google Maps for turn-by-turn directions."
+        ),
+        "distance_m": round(distance),
+        "duration_s": round(distance / 1.1),
+        "coordinates": [
+            [req.start_lon, req.start_lat],
+            [req.end_lon, req.end_lat]
+        ],
+        "steps": [
+            {
+                "instruction": (
+                    "Follow Google Maps for the actual walking route"
+                ),
+                "distance_m": round(distance)
+            }
+        ]
+    }
